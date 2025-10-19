@@ -1,13 +1,13 @@
-
 #![no_std]
 #![no_main]
 #![feature(offset_of)]
 
+use core::arch::asm;
+use core::cmp::min;
 use core::mem::offset_of;
 use core::mem::size_of;
 use core::panic::PanicInfo;
 use core::ptr::null_mut;
-use core::slice;
 
 type EfiVoid = u8;
 type EfiHandle = u64;
@@ -98,22 +98,30 @@ fn locate_graphics_protocol<'a>(
     Ok(unsafe {&*graphic_output_protocol})
 }
 
+pub fn hlt() {
+    unsafe {asm!("hlt")}
+}
+
 #[no_mangle]
 fn efi_main(_image_handle: EfiHandle, efi_system_table: &EfiSystemTable) {
     let mut vram = init_vram(efi_system_table).expect("init_vram failed");
     for y in 0..vram.height {
         for x in 0..vram.width {
-            if let Some(pixel) = vram.pixel_atm_mut(x, y) {
+            if let Some(pixel) = vram.pixel_at_mut(x, y) {
                 *pixel = 0xff_00_00; // Red
             }
         }
     }
-    loop{}
+    loop{
+     hlt()   
+    }
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+    loop {
+        hlt()
+    }
 }
 
 trait Bitmap {
@@ -132,7 +140,7 @@ trait Bitmap {
             ((y * self.pixel_per_line() + x) * self.bytes_per_pixel()) as usize,
         ) as *mut u32
     }
-    fn pixel_atm_mut(&mut self, x: i64, y: i64) -> Option<&mut u32> {
+    fn pixel_at_mut(&mut self, x: i64, y: i64) -> Option<&mut u32> {
         if self.is_in_x_range(x) && self.is_in_y_range(y) {
             // SAFETY: (x, y) is always validated by the checks above.
             unsafe { Some(&mut *(self.unchecked_pixel_at_mut(x, y))) }
@@ -141,12 +149,12 @@ trait Bitmap {
         }
     }
 
-    fn is_in_x_range(&self, x: i64) -> bool {
-        0 <= x && x < self.width()
+    fn is_in_x_range(&self, px: i64) -> bool {
+        0 <= px && px < min(self.width(), self.pixel_per_line())
     }
 
-    fn is_in_y_range(&self, y: i64) -> bool {
-        0 <= y && y < self.height()
+    fn is_in_y_range(&self, py: i64) -> bool {
+        0 <= py && py < self.height()
     }
 }
 
